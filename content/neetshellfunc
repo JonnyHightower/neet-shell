@@ -81,7 +81,7 @@ alias mv="mv -i"
 # Reporting aids. Pipe command output to these. svc https | ip will just show the IP addresses with https services.
 # svc https | socket will show all the sockets but no service into.
 alias iponly="awk -F: {print'\$1'}"
-alias socket="awk {print'\$1'} | sed -e 's?/tcp??' -e 's?/udp??'"
+alias socket="awk {print'\$1'} | sed -e 's?tcp/??' -e 's?udp/??'"
 alias sock="socket"
 
 

@@ -33,6 +33,14 @@ for my $line (@data){
 		$ip=$line; $ip=~s/^[\S\s]+Shares on: (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[\s\S]+/$1/;
 		next;
 	}
+	if (!defined($ip) && exists($ENV{'IP'})){
+		$ip=$ENV{'IP'};
+	}
+	if (!$ip){
+		print "Couldn't determine IP address. Not checking.\n";
+		last;
+	}
+
 	chomp $line;
 	my $share=$line; $share =~ s/^([\S\s]+) Disk [\S\s]+$/$1/;
 	my $desc=$line; $desc =~ s/^[\S\s]+ Disk\s+([\S\s]+)$/$1/;
@@ -43,7 +51,7 @@ for my $line (@data){
 	if ($rc == 0){
 		print "ANONYMOUS: $ip \"$share\"\n";
 	} else {
-		print "Authenticated: $ip \"$share\"\n";
+		print "Needs authentication: $ip \"$share\"\n";
 	}
 
 }
