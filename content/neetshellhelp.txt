@@ -188,6 +188,7 @@ REPORTING AIDS
 nonames  -> Will show IP addresses in output, rather than hostnames. This is the default behaviour.
 usenames -> Will show hostnames in output, rather than IP addresses.
 useboth -> Will show IP addresses AND hostnames in output, where possible.
+
 memo [message] -> Use with a message to add a time-stamped memo entry to the log. Use with no arguments
  		  to read all memo entries.
 
@@ -213,8 +214,8 @@ IN-SCAN TUNING AND MONITORING COMMANDS
 ======================================
 
 budget -> Sets a new overall performance budget. The default value is set in the configuration file.
-					The lower the budget, the fewer scans can run simultaneously. Use with no arguments to make neet
-					display the current budget.
+          The lower the budget, the fewer scans can run simultaneously. Use with no arguments to make neet
+          display the current budget.
 load   -> Set a new load average target for neet's automatic budget management.
 
 disable <module> -> Disable the specified GSM module.
@@ -227,7 +228,7 @@ gsmsummary -> Display a list of loaded GSM modules and the service files being w
 
 cancel   -> (In host mode) Cancels all scans of the current host.
 
- Note: Do not use these two unless you really know how the modules work:
+Note: Do not use these two unless you really know how the modules work:
 addinstance <module> -> Increments the Maximum allowed number of concurrent instances for the specified module.
 delinstance <module> -> Decrements the Maximum allowed number of concurrent instances for the specified module.
 
