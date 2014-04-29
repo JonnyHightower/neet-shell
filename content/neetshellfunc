@@ -759,7 +759,7 @@ function svc {
 		if [ -z $1 ]; then
 			for s in *; do
 				echo $s | sed -e 's/.txt//'
-			done
+			done | "${NEETSH}/columns"
 		else
 			if [ -f "${NeetTLD}/services/${1}.txt" ]; then
 				cat "${NeetTLD}/services/${1}.txt" | $TRANSLATOR
@@ -771,7 +771,7 @@ function svc {
 				if grep "^$IP " $s >/dev/null 2>&1 || grep "^${IP}:" $s >/dev/null 2>&1; then
 					echo $s | sed -e 's/.txt//'
 				fi
-			done
+			done | "${NEETSH}/columns"
 		elif [ -f "${1}.txt" ]; then
 			grep "^$IP:" "${1}.txt" | $TRANSLATOR
 		fi
