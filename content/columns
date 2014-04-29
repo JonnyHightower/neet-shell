@@ -1,0 +1,80 @@
+#!/usr/bin/perl -w
+
+##########################################################################
+#
+#    Neet: Network discovery, enumeration and security assessment tool
+#
+#    This program takes input piped to STDIN and produces columnar output
+#    dependent on the width of the user's terminal.
+#
+#    Copyright (C) 2008-2014 Jonathan Roach
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Contact: jonnyhightower [at] funkygeek.com
+#
+##########################################################################
+
+# Public Modules
+use Term::ReadKey;
+
+my ($line,$columns);
+my ($current,$doubleWide)=(0,0);
+
+# Determine how many columns to print
+my ($width,$height,@junk)=GetTerminalSize();
+if ($width < 95){
+	$columns=4;
+} elsif ($width < 120){
+	$columns=5;
+} else {
+	$columns=6;
+}
+
+my $columnWidth=int(($width-1) / $columns);
+while (my $lineIn=<STDIN>){
+	chomp $lineIn;
+	$doubleWide=0;
+	my $end=$current + $columnWidth;
+	if (length($lineIn) > $columnWidth){
+		$end += $columnWidth;		
+		$doubleWide=1;
+	}
+	if ($end > $width){
+		# Too long. Print what we already have and add this to a new line.
+		print "$line\n";
+		$line = pad($lineIn,$columnWidth);
+		$current=0;
+	} else {
+		# We can fit this on
+		$lineIn .= " ";
+		my $width=$columnWidth;
+		$width = ($columnWidth * 2) if ($doubleWide);
+		$line .= pad($lineIn,$width);
+		$current = length($line);
+	}
+}
+
+# Catch and print the last line
+print "$line\n" if ($line);
+
+sub pad {
+	my $string=shift();
+	my $size=shift();
+	if (length($string) < $size){
+		$string .= " " x ($size - length($string));
+	}
+	return $string;
+}
+

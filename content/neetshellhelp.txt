@@ -53,8 +53,8 @@ Run these commands inside any directory, from the top-level results directory do
 	ip		-> Opposite of name. Case insensitive.
 	svc	-> List services on the network or host. Specify a service name to list all instances of that service.
 	webs -> Loops through all HTTP/S services on the network, opening each sequentially with a web browser
-	msf2    -> runs msfcli version 2
-	msf    -> runs msfcli version 4
+	msfcli2    -> runs msfcli version 2
+	msfcli    -> runs msfcli version 4
 	findport -> find all hosts with the specified port open.
 	tcpports -> comma-delimited list of all tcp ports open across the infrastructure
 	udpports -> comma-delimited list of all udp ports open across the infrastructure
