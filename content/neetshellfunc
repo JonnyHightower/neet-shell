@@ -9,7 +9,7 @@
 # The other functions are the actual user commands.
 
 # Config File
-VERSION=1.1.1
+VERSION=1.1.2
 CONFIG="/opt/neet/etc/neet.conf"
 
 # Check we're in a valid directory
@@ -1003,39 +1003,43 @@ function snmp {
 #   **********************
 
 function gethash {
-	${NEETSH}/gethash $@
+	if [ ! -z $IP ] && [ ! -z $3 ]; then
+		OIP=$IP
+		unset IP
+		${NEETSH}/gethash $@
+		export IP=$OIP
+	else
+		${NEETSH}/gethash $@
+	fi
 }
+
 function mimikatz {
-	${NEETSH}/mimikatz $@
+	if [ ! -z $IP ] && [ ! -z $3 ]; then
+		OIP=$IP
+		unset IP
+		${NEETSH}/mimikatz $@
+		export IP=$OIP
+	else
+		${NEETSH}/mimikatz $@
+	fi
 }
+
 function mimiparse {
 	${NEETSH}/mimiparse $@
 }
+
 function hivedump {
-	${NEETSH}/hivedump $@
-}
-
-
-function hashdump {
-	if [ -z $IP ]; then
-		echo "Switch to host mode to dump hashes, or use the ${NEETSH}/gethash command."
-	elif grep "^OSFamily Windows" hostInfo.txt >/dev/null 2>&1; then
-		if grep "^AddedAccount " hostInfo.txt >/dev/null 2>&1; then
-			if [ -z $2 ]; then
-				local user=`grep "^NewUser=" $CONFIG | awk -F= {print'$2'}`
-				local pass=`grep "^NewPassword=" $CONFIG | awk -F= {print'$2'}`
-				${NEETSH}/gethash $IP "$user" "$pass"
-			else
-				${NEETSH}/gethash $IP "$1" "$2"
-			fi
-		elif [ -z $2 ]; then
-			echo "Usage: hashdump <username> <password>"
-		else
-			${NEETSH}/gethash $IP "$1" "$2"
-		fi
+	if [ ! -z $IP ] && [ ! -z $3 ]; then
+		OIP=$IP
+		unset IP
+		${NEETSH}/hivedump $@
+		export IP=$OIP
 	else
-		echo "Hashdump is implemented only for Windows hosts."
+		${NEETSH}/hivedump $@
 	fi
+}
+function hashdump {
+		gethash $@
 }
 
 function psexec {
