@@ -26,7 +26,7 @@ if [ ! -z $INVOKEDBYNEETUPDATE ] && [ $INVOKEDBYNEETUPDATE -eq 1 ]; then
 	chmod -R go-w "${NEET}/neetsh/"
 
 	# Link the neetsh to the system
-	for file in neetsh gethash mimikatz; do
+	for file in neetsh gethash mimikatz accounts; do
 		rm -f /usr/bin/$file
 		chmod +x ${NEET}/neetsh/$file
 		ln -s ${NEET}/neetsh/$file /usr/bin/$file

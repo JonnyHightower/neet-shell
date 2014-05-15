@@ -1,5 +1,27 @@
 #!/bin/bash
 
+##########################################################################
+#
+#    Neet: Network discovery, enumeration and security assessment tool
+#    Copyright (C) 2008-2014 Jonathan Roach
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Contact: jonnyhightower [at] funkygeek.com
+#
+##########################################################################
+
 # Functions to make navigating neet results *much* easier.
 # This file should be sourced into an existing bash shell.
 
@@ -9,7 +31,7 @@
 # The other functions are the actual user commands.
 
 # Config File
-VERSION=1.1.1
+VERSION=1.1.2
 CONFIG="/opt/neet/etc/neet.conf"
 
 # Check we're in a valid directory
@@ -181,10 +203,6 @@ function __help {
 function help {
 	# This provides help to the user
 	__help | less
-}
-
-function wincreds {
-	${BaseD}/bin/wincreds "$NeetTLD" "$RD"
 }
 
 function msfcli2 {
@@ -502,17 +520,27 @@ function shares {
 	fi
 }
 
-function multikatz {
+function accounts {
+	if [ -z $IP ]; then
+		$NEETSH/accounts $@
+	else
+		if [ -z $1 ]; then
+			$NEETSH/accounts -l -s $IP $@
+		else
+			$NEETSH/accounts -s $IP $@
+		fi
+	fi
+}
+
+function ___multikatz {
+	# DISABLE THIS UNTIL WE INTEGRATE WITH THE CREDENTIAL MANAGER
 	local opwd=`pwd`
 	cd "$NeetTLD"
-	if [ ! -f credentials ]; then
-		echo "You need to specify Windows credentials with the wincreds command."
-		return 1
-	elif [ -f windows.txt ]; then
+	if [ -f windows.txt ]; then
 		# Try mimikatz across all hosts
 		rm -f mimicatz-credentials.txt
 		for ip in `cat windows.txt | awk {print'$1'}`; do
-			result=`${BaseD}/bin/checkcreds $ip`
+			#result=`${BaseD}/bin/checkcreds $ip` << quick logon check I think
 			if [ $? -eq 0 ]; then
 				account=`echo $result | awk -F" : " {print'$2'}`
 				password=`echo $result | awk -F" : " {print'$3'}`
@@ -991,7 +1019,7 @@ function snmp {
 	else
 		local tmp="${NeetTLD}/.neetshelltmp"
 		[ -f $tmp ] && rm -f $tmp
-		for host in `cat ${NeetTLD}/services/SNMP_Read.txt ${NeetTLD}/services/SNMP_Write.txt 2>/dev/null | awk {print'$1'} | sort -u`; do
+		for host in `cat ${NeetTLD}/readSNMP.txt ${NeetTLD}/writeSNMP.txt 2>/dev/null | awk -F: {print'$1'} | sort -u`; do
 			echo "$host" >> $tmp
 		done
 		_lh "$tmp"
