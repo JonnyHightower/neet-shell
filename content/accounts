@@ -1,0 +1,557 @@
+#!/usr/bin/perl -w
+
+##########################################################################
+#
+#    Neet: Network discovery, enumeration and security assessment tool
+#    Copyright (C) 2008-2014 Jonathan Roach
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Contact: jonnyhightower [at] funkygeek.com
+#
+##########################################################################
+
+BEGIN {
+	unshift @INC, "/opt/neet/core";
+}
+
+use strict;
+use Neet::CredentialManager;
+use JR::Parsers::CLI;
+
+use DBI;
+use DBD::SQLite;
+
+# Basename of this program
+my $ME = $0; $ME =~ s?^[\S\s]+\/(\S+)?$1? if ($ME =~ m?/?);
+
+# Command line processing
+my $CLI=JR::Parsers::CLI->new('t:d:u:p:s:f:c:r:o:lhx:eD:qi:UP:g:');
+
+$CLI->LongShortMap (
+			'type'=>'t', 'domain'=>'d', 'user'=>'u', 'pass'=>'p', 'system'=>'s',
+			'file'=>'f', 'list'=>'l', 'help'=>'h', 'delete'=>'x', 'comment'=>'c',
+			'output'=>'o', 'export'=>'e', 'delimiter'=>'D', 'quotes'=>'q', 'import'=>'i',
+			'tag'=>'g', 'privilege'=>'P', 'URL'=>'U', 'rid'=> 'r'
+);
+
+$CLI->Process(@ARGV);
+
+usage() if ($CLI->Got('h'));
+
+my $delete = $CLI->Value('x');
+my ($csv,$quotes,$url)=(1,0,0);
+
+my $delimiter=",";
+if ($CLI->Got('D')){
+	$delimiter=$CLI->Value('D');
+}
+
+my %criteria = (
+	'tag' => $CLI->Value('g'),
+	'privilege' => $CLI->Value('P'),
+	'type' => $CLI->Value('t'),
+	'rid' => $CLI->Value('r'),
+	'user' => $CLI->Value('u'),
+	'pass' => $CLI->Value('p'),
+	'domain' => $CLI->Value('d'),
+	'system' => $CLI->Value('s'),
+	'comment' => $CLI->Value('c'),
+	'output' => $CLI->Value('o'),
+);
+
+# Base mode we'll be operating in
+my ($import,$add,$list,$del)=(0,0,0,0);
+if ($#ARGV == -1){
+	$list=1;
+} else {
+	if ($CLI->Got('l')){
+		$list=1;
+	} elsif ($CLI->Got('x')){
+		$del=1;
+	} elsif ($CLI->Got('i')){
+		$import=1;
+	} else {
+		$add=1;
+	}
+}
+
+$quotes = 1 if ($CLI->Got('q'));
+
+if ($CLI->Got('U')){
+	$delimiter="&";
+	($quotes,$csv,$list,$add,$del)=(0,0,1,0,0);
+}
+
+if ($CLI->Got('e')){
+	$delimiter=",";
+	($quotes,$csv,$list,$add,$del)=(1,0,1,0,0);
+}
+
+# Use a localised credential store if running in the Neet Shell
+my $databaseFile=$ENV{'HOME'} . "/.credentialManager";
+if ($ENV{'NeetTLD'}){
+	$databaseFile=$ENV{'NeetTLD'} . "/.credentialManager";
+}
+if ($ENV{'CREDSTORE'}){
+	$databaseFile=$ENV{'CREDSTORE'};
+}
+
+# Set up the object to access the store
+my $cm=Neet::CredentialManager->new($databaseFile);
+
+if ($CLI->Got('f')){
+	print "Using database file " . $CLI->Value('f') . "\n";
+	$cm->credentialStore($CLI->Value('f'));
+}
+
+if ($add){
+	my $rc=$cm->addCredential(%criteria);
+	if ($rc){
+		print "Added credential successfully\n";
+	} else {
+		print "There was an error adding the credential.\n";		
+		exit 1;
+	}
+}
+
+if ($del){
+	my $rc=$cm->deleteCredential($delete);
+	if ($rc){
+		print "Deleted credential successfully\n";
+	} else {
+		print "There was an error deleting the credential.\n";
+		exit 1;
+	}
+}
+
+if ($list){
+	# Take care of cases where the domain has been supplied in DOMAIN\User form:
+	if ($criteria{'user'} && ($criteria{'user'} =~ /\S+\\\w/) && (!$criteria{'domain'})){
+		my ($domain,$user)=split ("\\\\", $criteria{'user'}, 2);
+		$criteria{'user'}=$user;
+		$criteria{'domain'}=$domain;
+	}
+	# Take care of cases where the domain has been supplied in user@domain form:
+	if ($criteria{'user'} && ($criteria{'user'} =~ /\S+\@\S+/) && (!$criteria{'domain'})){
+		my ($user,$domain)=split ("@", $criteria{'user'}, 2);
+		$criteria{'user'}=$user;
+		$criteria{'domain'}=$domain;
+	}
+	my @data=$cm->selectCredentials(%criteria);
+
+	my @fields;
+	if ($CLI->Got('o')){
+		# Which fields do we have? Ensure we can show them in the selected order.
+		for my $select (split ("", $CLI->Value('o'))){
+			push @fields, "privilege" if ($select =~ /P/);
+			push @fields, "tag" if ($select =~ /g/);
+			push @fields, "id" if ($select =~ /i/);
+			push @fields, "user" if ($select =~ /u/);
+			push @fields, "rid" if ($select =~ /r/);
+			push @fields, "pass" if ($select =~ /p/);
+			push @fields, "type" if ($select =~ /t/);
+			push @fields, "system" if ($select =~ /s/);
+			push @fields, "domain" if ($select =~ /d/);
+			push @fields, "comment" if ($select =~ /c/);
+		}
+	} else {
+		# Just show all the fields in this order
+		@fields=("id","tag","privilege","type","rid","user","pass","domain","system","comment");
+	}
+
+	my (@output,$select);
+	if ($csv){
+		# Form CSV column headers
+		if ($quotes){
+			$select = "\"" . join "\"$delimiter\"", @fields;
+			$select .= "\"";
+		} else {
+			$select = join $delimiter, @fields;
+		}
+		push @output, $select;		
+	}
+
+	# Now compile the data in to the appropriate format
+	for my $credential (@data){
+		my $presentation;
+		for my $field (@fields){
+			my $value=$$credential{$field};
+			if ($csv){
+				if ($quotes){
+					$presentation .= "\"$value\"";
+				} else {
+					$presentation .= $value if (defined($value));
+				}
+			} else {
+				if ($quotes){
+					$presentation .= "\"$field\"=\"$value\"";
+				} else {
+					$presentation .= "$field=$value";
+				}
+			}
+			$presentation .= $delimiter;
+		}
+		$presentation =~ s/$delimiter$//;
+		push @output, $presentation;
+	}
+
+	# Finally, display the stored output
+	print join "\n", @output;
+	print "\n";
+}
+
+if ($import){
+	my $format=$CLI->Value('i');
+	my $rc=0;
+	$|=1;
+	if ("$format" eq "pwdump"){
+		for my $line (<STDIN>){
+			next if ($line !~ /:/);
+			chomp $line;
+			my ($user,$rid,$lm,$ntlm,$junk)=split ":", $line;
+			my %credential=%criteria;
+
+			my $comment=$criteria{'comment'};
+			if ($comment && $comment =~ /\S/){
+				$credential{'comment'}=$comment;
+			} else {
+				$credential{'comment'}="Pwdump import";
+			}
+			$credential{'rid'}=$rid;
+			my $tag;
+			if ($user =~ /\(/){
+				$user =~ /^([\S\s]+)\(([\S\s]+)\)/;
+				$user=$1;
+				$tag=$2;
+			}
+			
+			$credential{'user'}=$user;
+			$credential{'type'}="ntlm";
+			$credential{'pass'}="${lm}:$ntlm";
+			$credential{'tag'}=$tag if ($tag);
+			if ("$rid" eq "500"){
+				$credential{'privilege'}="high";
+			} elsif ("$rid" eq "501"){
+				$credential{'privilege'}="low";
+			}
+			$rc=$cm->addCredential(%credential);
+			print ".";
+		}
+		print "\n";
+	} elsif ("$format" eq "native"){
+		for my $line (<STDIN>){
+			next if ($line !~ /",/);
+			chomp $line;
+			my %credential;
+			my @data=split "\",", $line;
+			for my $element (@data){
+				$element=~s/"//g;
+				my ($key,$value)=split "=", $element;
+				next if ("$key" eq "id");
+				$value="" if (!defined($value));
+				$credential{$key}=$value;
+			}
+			$rc=$cm->addCredential(%credential);
+			print ".";
+		}
+		print "\n";
+	} elsif ("$format" =~ /^f/){
+		$format =~ s/^f//;
+
+		my @fields;
+		for my $select (split ("", $format)){
+			push @fields, "tag" if ($select =~ /g/);
+			push @fields, "privilege" if ($select =~ /P/);
+			push @fields, "rid" if ($select =~ /r/);
+			push @fields, "user" if ($select =~ /u/);
+			push @fields, "pass" if ($select =~ /p/);
+			push @fields, "type" if ($select =~ /t/);
+			push @fields, "system" if ($select =~ /s/);
+			push @fields, "domain" if ($select =~ /d/);
+			push @fields, "comment" if ($select =~ /c/);
+		}
+		my $select = join ",", @fields;
+
+		if ($select =~ /\S/){
+			print "Importing CSV data in the following format: $select (delimiter $delimiter)\n";
+			for my $line (<STDIN>){
+				next if ($line !~ /$delimiter/);
+				chomp $line;
+				my %credential=%criteria;
+				my @data;
+				if ($line =~ /\"$delimiter\"/){
+					$line =~ s/"$//;
+					$line =~ s/^"//;
+					@data=split "\"$delimiter\"", $line;
+				} else {
+					@data=split "$delimiter", $line;
+				}
+				for my $field (@fields){
+					my $value=shift(@data);
+					$credential{$field}=$value;
+				}
+				$rc=$cm->addCredential(%credential);
+				print ".";
+			}
+			print "\n";
+
+		} else {
+			print "You must specify the format of the incoming data. " .
+						"See the help for\ndetails of the -i option.\n\n";
+		}
+	} else {
+		print "You must specify a valid format for incoming data.\n";
+	}
+
+	if ($rc){
+		print "Added credentials successfully\n";
+	} else {
+		print "There was an error adding the credentials.\n";		
+		exit 1;
+	}
+}
+
+
+exit 0;
+
+sub usage {
+	print "$ME is a command-line interface to the Neet credential manager,
+which is used by Neet to store and retrieve credentials found during
+pentests.
+
+You can use this command-line tool to manually manage credentials you
+find or are given during a pentest, and to interact with those that Neet
+finds. It allows you to add, search, and delete credentials, as well as
+import and export them in various useful formats.
+
+Examples of use cases are listed at the end of this help.
+
+Usage: $ME [options]
+
+       Run with no arguments to list all stored credentials in CSV format.
+
+    -f (--file): use the specified file instead of the default, which is
+       ~/.credentialManager. If the NeetTLD environment variable is set,
+       as is the case in the Neet Shell, then the database file used will be
+       \$NeetTLD/.credentialManager; the purpose of this is to isolate
+       credentials used on each engagement. You can override this behaviour
+       either with this --file option, or by setting the CREDSTORE environment
+       variable, which should contain the full absolute path to the database
+       file you wish to use.
+
+    -t (--type): specify the type of credential you are adding or listing.
+       Guidance on the use of this field is provided below.  This field is
+       always stored in lower case.
+
+    -d (--domain): specify the realm or domain of the credential you are
+       adding or listing. This can also be used to specify SIDs or other
+       authentication zones depending on the type of system.
+
+    -u (--user): specify the account name of the credential you are adding
+       or listing. If the username is supplied in user\@domain or DOMAIN\\USER
+       format, both the \"user\" and \"domain\" fields are populated correctly.
+       This also applies to specification of usernames and domains whilst searching.
+
+    -p (--pass): specify the password of the credential you are adding or
+       listing.
+
+    -s (--system): specify the system name or IP address for the credential
+       you are adding or listing. This field is always stored in UPPER case.
+
+    -g (--tag): provide a tag for your credential. For example, WCE has \"hist001\"
+       and \"used\" and the like for each credential. The pwdump import makes use of
+       tags to store this data and you can use it to select data too. Tags are
+       always stored in lower case.
+
+    -r (--rid): specify the RID or numeric identifier of the credential you are
+       adding or listing.
+
+    -P (--privilege): provide a privilege indicator for your credential. For
+       example, you could mark certain accounts as \"high\" or \"low\",
+       \"locked\" or whatever you want. This field is always stored in lower case.
+
+    -x (--delete): delete the credential with the specified ID
+
+    -l (--list): list stored credentials. You can optionally filter results
+       by specifying -t -d -u -p -s -g and/or -P to list credentials matching
+       those fields only. You can use the percent (\%) symbol as a wildcard
+       character when matching particular fields. The output of -l can be
+       formatted using --output, below.
+
+    -o (--output): A string representing the fields that are required when
+       listing the credentials:
+       i = credential ID (internal reference only, but required for deleting)
+       t = credential type
+       r = RID or system numeric user ID
+       u = username
+       p = password
+       d = domain/realm
+       s = system name
+       c = comment
+       g = tag
+       P = privilege
+
+       The --output parameter is optional - without it, -l will list all the
+       available fields.
+
+    -i (--import): import a set of credentials from STDIN. This option requires
+       an argument which specifies the type of list being provided. The
+       following values can be supplied:
+
+       f[tupdscgP] = This signifies a CSV format import, with the input file
+         having only the specified fields are in the order listed, as per the
+         --output option. Use this to import general password lists in CSV
+         format. If you don't have all parameters in the CSV file (perhaps
+         you just have a list of passwords), then you can specify other 
+         parameters on the command line as though you were manually adding
+         a credential. These parameters will be applied to every credential
+         imported in this way.
+
+       pwdump = The input is in pwdump format.
+
+       native = The credentials are being provided by the output of this program
+         in export mode: \"$ME -e\" or \"$ME --export\".
+         It is important that no --output filters are applied to the export,
+         although the search filters can of course be used to restrict the number
+         of fields which are exported.
+         This feature is useful for transferring credentials between credential
+         manager databases.
+
+    -D (--delimiter): specify the delimiter for the output. The default is
+       comma-separated output.
+
+    -e (--export): provide the output in machine-readable format.
+
+    -U (--URL): provide the output in a format suitable for an URL or a POST 
+       request
+
+    -q (--quotes): quote each output field. Nice for preserving integrity, not
+       so nice for quick shell scripts.
+
+    -h (--help): print this help
+
+Strings representing credential types (values for 't'):
+  gen:      Generic username/password pair.
+  smb:      Windows/Samba/RDP. This is the assumed type if no
+            other type is specified.
+  mssql:    Microsoft SQL
+  mysql:    MySQL
+  ora:      Oracle Database
+  pgrs:     PostGres
+  vnc:
+  ssh:
+  tnet:     Telnet
+  snmp:
+  hsrp:
+  vrrp:
+  web:      Web application
+  ntlm:     Windows LM/NTLM Hashes (as dumped from the SAM)
+  mscache:  MS Cache
+  mscache2: MS Cache2
+  md5:      MD5 hash
+  md5s:     Salted MD5 hash
+  sha1:     SHA hash
+  sha1s:    Salted SHA hash
+  sha256:   SHA256 hash
+  sha256s:  Salted SHA256 hash
+  des:      DES Unix password
+
+You are free to make up your own 'type' identifiers, but bear in mind that the
+Neet modules can only make use of those of which they are aware.
+
+You don't have to add all possible fields when adding credentials. You MUST put in
+either a password or username, but that is the only entry that is required to create
+a new credential record.
+Bear in mind that the more fields you add, the more selective you can be afterwards when
+you're searching through hundreds or thousands of credentials.
+
+EXAMPLES
+========
+
+0. View all credentials in the store, in shell-script-friendly CSV format
+$ME
+
+1. Add a credential for a Windows domain. Note the use of quotes around shell metacharacters:
+$ME -t smb -u superman -p 'sup3rS3kr!t' -d root -s ukrootdomdc01 -c 'Domain Admin!'
+
+2. Add some infrastructure passwords
+$ME -t hsrp -p bobbydazzler -s gateway03 -c \"Found this using tcpdump\"
+$ME -t snmp -p bobbydazzler -s ukrouter01 -c \"Same as HSRP string!\"
+
+3. Add an Oracle database credential for the oratest SID
+$ME -t ora -u dbsnmp -p cirCus -d oratest -s DBSRV04 -c \"Got a really good brute-forcer\"
+
+4. List all passwords regardless of which types of systems they were found on. This
+   may include duplicate entries.
+$ME -l -o p
+
+5. List all Windows domains, usernames and passwords in that order. Make the output
+   exclamation-point delimited with quotes around the data values.
+$ME -l -t smb -o dup -q -D\\!
+
+6. List all data on SNMP strings
+$ME -l -t snmp
+
+7. List all passwords on accounts with the username Administrator:
+$ME -l -u Administrator -o p
+
+8. Find that pesky Windows entry with the \"ihatepentesters\" password and delete it
+$ME -x \$($ME -l -t smb -p ihatepentesters -o i)
+
+9. Delete all NTLM credentials we have from system XAVIER 
+for id in \`$ME -l -t ntlm -o i -s XAVIER\`\; do $ME -x \$id\; done
+
+10. You found a sticky note with \"Password: ahoauuf23r\" on it. Record it.
+$ME -p ahoauuf23r 
+or better still:
+$ME -p ahoauuf23r -c \"Post-it note on Andrew's desk\"
+
+11. List all accounts in the uberoot Windows domain, with just usernames and passwords,
+    in that order.
+$ME -l -d uberoot -o up
+
+12. List all accounts in the credential store. Print the output in spreadsheet-friendly
+    CSV format.
+$ME -lq
+
+13. List all website accounts. Make the output in URL- and POST-friendly format.
+$ME -l -t web -U -o up
+
+14. Import a pwdump file.
+cat pwdump.txt | $ME -i pwdump -c \"From the XAVIER file server\"
+or
+cat pwdump.txt | $ME -i pwdump -s XAVIER
+or
+cat pwdump.txt | $ME -i pwdump -c \"From the XAVIER file server\" -s XAVIER
+
+15. Import a pwdump file for the GLOBAL domain
+cat pwdump.txt | $ME -i pwdump -d GLOBAL -s DC01
+
+16. Import a simple CSV file of usernames and passwords for the corpdom domain.
+cat accounts.csv | $ME -i fup -d corpdom
+
+17. Import a CSV file of usernames, passwords and SIDs for the Oracle database server
+cat accounts.csv | $ME -i fupd -t ora -s DBSRV012UK
+
+18. Import credentials from a different credential store.
+$ME -e -f ~/work/.credentialStore | $ME -i all -f ~/myMergedCredentialStore
+
+19. Import just Windows credentials from a different credential store.
+$ME -e -f ~/work/.credentialStore -t smb | $ME -i all -f ~/myMergedCredentialStore
+
+";
+	exit 0;
+}
+
