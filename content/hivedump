@@ -23,6 +23,75 @@
 ##########################################################################
 
 use strict;
+if ($#ARGV<0){
+	usage();
+	exit 1;
+}
+
+if ($ARGV[0] eq "--extract"){
+	my $err=0;
+	my ($esedb,$ntdsxtract)=("/opt/neet/pkg/bin/esedbexport","/opt/neet/pkg/ntdsxtract/dsusers.py");
+
+	if ((! -x "$esedb") || (! -f "$ntdsxtract")){
+		print STDERR "!!! Your NEET installation doesn't support extracting hashes from NTDS\n";
+		print STDERR "    Get the latest version from https://github.com/JonnyHightower/neet/\n";
+		exit 1;
+	}
+
+	# Use libesedb and ntdsxtract to get the hashes from the AD
+	my ($ntds,$system)=("NTDS.dit","SYSTEM.hive"); # NEET default filenames
+
+	# Override the default filenames from the command line
+	$ntds=$ARGV[1] if ($ARGV[1]);
+	$system=$ARGV[2] if ($ARGV[2]);
+
+	if (! -f "$ntds"){
+		print STDERR "Couldn't find Active Directory file \"$ntds\"\n";
+		$err=2;
+	}
+	if (! -f "$system"){
+		print STDERR "Couldn't find SYSTEM hive file \"$system\"\n";
+		$err=3;
+	}
+	if (!$err){
+		# Do the extraction
+		if (-d "ntds.dit.export"){
+			print "NTDS appears to have been exported already. Skipping the initial extraction.\n";
+		} else { 
+			system ("$esedb $ntds");
+		}
+		if (-f "${ntds}.export/datatable.3" && -f "${ntds}.export/link_table.4"){
+			print "\nExtracting password hashes in ophcrack format. This can take up to half an hour for an\n" .
+						"Active Directory with thousands of users. You can periodically \"wc -l accounts.csv\" to check\n" .
+						"progress. Started at: ";
+			system("date");
+
+			my $rc=system ("python $ntdsxtract ${ntds}.export/datatable.3 ${ntds}.export/link_table.4 ${ntds}.export/ --syshive $system --pwdformat ophc --passwordhashes --passwordhistory --csvoutfile ../accounts.csv --ntoutfile ../nthashes.txt > hivedump.txt 2>/dev/null");
+			$rc = $rc << 8;
+
+			if ($rc == 0){
+				print "\nAccount information is in accounts.csv, and password hashes in pwdump format are in nthashes.txt.\n" .
+							"User account details in long text format can be found in hivedump.txt.\n";
+			} else {
+				print "There was an error extracting the password hashes. Sorry.\n";
+				$err=4;
+			}
+		} else {
+			print "It doesn't appear that the database was successfuly extracted from $ntds. Sorry.\n";
+			$err=5;
+		}
+	}
+
+	if (!$err){
+		credit();
+	} else {
+		usage();
+	}
+
+	exit $err;
+}
+
+# This code is for the non-extract options.
 
 my ($host,$user,$pass);
 my $UPLOAD="/opt/neet/upload";
@@ -35,8 +104,7 @@ if (exists($ENV{'IP'})){
 }
 
 if (!defined($pass)){
-	print ("$0\n");
-	print ("Usage: $0 [<host>] <user> <password>\n");
+	usage();
 	exit 1;
 }
 my $WorkingDir=$ENV{'PWD'};
@@ -202,11 +270,16 @@ if ($regSuccess || $ADSuccess){
 
 cleanup();
 
-my $credit='jonnyhightower [at] funkygeek.com';
+if ($ADSuccess && (-f "NTDS.dit") && (-f "SYSTEM.hive")){
+	print " + Successfully got the Active Directory database and SYSTEM hive.\n" .
+				"   Run $0 --dump to dump the hashes from them.";
+}
 
-print "\n" . "-" x length($credit) . "\n";
-print $credit . "\n\n";
-
+if (!$ERROR){
+	credit();
+} else {
+	usage();
+}
 exit $ERROR;
 
 #------------------------------------------------------------------------------------------------------------------------------------------------
@@ -349,5 +422,20 @@ sub uploadFiles {
 		print "*** There was an error during the file upload process.\n";
 		exit 1;
 	}
+}
+sub credit {
+	my @credit=("Thank you for using hivedump.",'jonnyhightower [at] funkygeek.com');
+	my $longer=0;
+	for my $line (@credit){
+		if (length($line) > $longer){
+			$longer=length($line);
+		}
+	}
+	print "\n" . "-" x $longer . "\n";
+	print join ("\n", @credit) . "\n\n";
+}
+sub usage {
+	print "Usage: $0 [<host>] <user> <password>, OR\n       $0 --extract" .
+				" [NTDS.dit file] [SYSTEM hive] to extract hashes.\n";
 }
 
