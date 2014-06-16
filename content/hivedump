@@ -28,7 +28,7 @@ if ($#ARGV<0){
 	exit 1;
 }
 
-if ($ARGV[0] eq "--extract"){
+if ($ARGV[0] eq "--ntds"){
 	my $err=0;
 	my ($esedb,$ntdsxtract)=("/opt/neet/pkg/bin/esedbexport","/opt/neet/pkg/ntdsxtract/dsusers.py");
 
@@ -91,6 +91,60 @@ if ($ARGV[0] eq "--extract"){
 	exit $err;
 }
 
+if ($ARGV[0] eq "--dump"){
+	my $err=0;
+
+	if (! -f "/opt/neet/pkg/creddump/pwdump.py"){
+		print STDERR "!!! Your NEET installation doesn't support extracting hashes from registry files.\n";
+		print STDERR "    Get the latest version from https://github.com/JonnyHightower/neet/\n";
+		exit 1;
+	}
+
+	my ($sam,$system,$security)=("SAM.hive","SYSTEM.hive","SECURITY.hive"); # NEET default filenames
+
+	# Override the default filenames from the command line
+	$sam=$ARGV[1] if ($ARGV[1]);
+	$system=$ARGV[2] if ($ARGV[2]);
+	$security=$ARGV[2] if ($ARGV[2]);
+
+	my ($sa,$sy,$se)=(1,1,1);
+
+	if (! -f "$sam"){
+		print STDERR "Couldn't find SAM hive \"$sam\"\n";
+		$sa=0;
+	}
+	if (! -f "$system"){
+		print STDERR "Couldn't find SYSTEM hive file \"$system\"\n";
+		$sy=0;
+	}
+	if (! -f "$security"){
+		print STDERR "Couldn't find SECURITY hive file \"$security\"\n";
+		$se=0;
+	}
+
+	$err=6;
+	# Do the extraction
+	if ($sy && $sa){
+		print "Dumping SAM...\n";
+		system ("python /opt/neet/pkg/creddump/pwdump.py \"$system\" \"$sam\" > sam.dump");
+		$err=0;
+	}
+	if ($sy && $se){
+		print "Dumping LSA...\n";
+		system ("python /opt/neet/pkg/creddump/lsadump.py \"$system\" \"$security\" > lsa.dump");
+		print "Dumping Cache...\n";
+		system ("python /opt/neet/pkg/creddump/cachedump.py \"$system\" \"$security\" > cache.dumped");
+		$err=0;
+	}
+
+	if (!$err){
+		credit();
+	} else {
+		usage();
+	}
+
+	exit $err;
+}
 # This code is for the non-extract options.
 
 my ($host,$user,$pass);
@@ -103,10 +157,15 @@ if (exists($ENV{'IP'})){
 	($host,$user,$pass)=@ARGV;
 }
 
-if (!defined($pass)){
+if (!defined($user)){
 	usage();
 	exit 1;
 }
+
+if (!defined($pass)){
+	$pass="";
+}
+
 my $WorkingDir=$ENV{'PWD'};
 my $REMOTE_DIR="_hivedump";
 my $ERROR=1;
@@ -272,7 +331,8 @@ cleanup();
 
 if ($ADSuccess && (-f "NTDS.dit") && (-f "SYSTEM.hive")){
 	print " + Successfully got the Active Directory database and SYSTEM hive.\n" .
-				"   Run $0 --dump to dump the hashes from them.";
+				"   Run $0 with no arguments to find out how to extract hashes and other information.\n";
+	$ERROR=0;
 }
 
 if (!$ERROR){
@@ -435,7 +495,10 @@ sub credit {
 	print join ("\n", @credit) . "\n\n";
 }
 sub usage {
-	print "Usage: $0 [<host>] <user> <password>, OR\n       $0 --extract" .
-				" [NTDS.dit file] [SYSTEM hive] to extract hashes.\n";
+	print "Usage:\n" .
+				"       $0 [<host>] <user> <password> to download the registry and NTDS, OR\n" .
+				"       $0 --ntds [NTDS.dit file] [SYSTEM hive] to extract hashes from NTDS, OR\n" .
+				"       $0 --dump to dump the LSA, hashes from SAM and the Cache.\n";
 }
+
 

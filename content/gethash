@@ -35,11 +35,16 @@ if (exists($ENV{'IP'})){
 $user=shift(@ARGV);
 $pass=shift(@ARGV);
 
-if (!defined($pass)){
+if (!defined($user)){
 	print ("$0\n");
 	print ("Usage: $0 [<host>] <user> <password>\n");
 	exit 1;
 }
+
+if (!defined($pass)){
+	$pass="";
+}
+
 my $WorkingDir=$ENV{'PWD'};
 my $REMOTE_DIR="_gethash";
 my $ERROR=1;
