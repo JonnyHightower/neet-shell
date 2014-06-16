@@ -132,8 +132,6 @@ gethash     -> Dump the hashes from the currently-selected host. If the host has
                automatically by neet, the new account will automatically be used and no username/password
                combination will need to be supplied.
 
-hashdump    -> Synonym for gethash.
-
 mimikatz    -> Run Mimikatz on the remote host, retrieve the output and parse it for useful credentials.
 
 hivedump    -> Extract the SAM SYSTEM and SECURITY hives from the remote host. Also gets NTDS.dit from
