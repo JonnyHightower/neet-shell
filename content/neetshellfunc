@@ -31,13 +31,13 @@
 # The other functions are the actual user commands.
 
 # Config File
-VERSION=1.1.5
+VERSION=1.1.6
 CONFIG="/opt/neet/etc/neet.conf"
 
 # Check we're in a valid directory
 if [ ! -d .neet ] || [ -f .neet/wd ]; then
 	# Check where the last one was
-  LD=`cat ${HOME}/.neet/wd`
+  LD=`cat "${HOME}/.neet/wd"`
 	if [ -d "$LD" ]; then
 		cd "$LD"
 	else
@@ -51,7 +51,7 @@ echo "neet shell initialising...."
 # Record top level directory
 export NeetTLD="$PWD"
 export NeetCTL="${PWD}/.neet"
-export INTERACT=${NeetCTL}/interaction
+export INTERACT="${NeetCTL}/interaction"
 
 # Resource Directory
 RD=`grep "^ResourceDirectory=" ${CONFIG} | awk -F= {print'$2'}`
@@ -62,18 +62,18 @@ NeetLOG="logs/$NeetLOG"
 
 # Bin Directory
 BaseD="/opt/neet"
-BD=${BaseD}/bin
-NEETSH=${BaseD}/neetsh
+BD="${BaseD}/bin"
+NEETSH="${BaseD}/neetsh"
 
 # HTML Document location
-HTDD=${BaseD}/doc/html
+HTDD="${BaseD}/doc"
 
 # HTML Viewer
 BROWSER=`grep "^Viewer.HTML=" ${CONFIG} | awk -F= {print'$2'}`
 
 # Metasploit
-MSF2=${BaseD}/pkg/framework2
-MSF=/opt/metasploit
+MSF2="${BaseD}/pkg/framework2"
+MSF="/opt/metasploit"
 
 # Use IP addresses by default
 export useNames=0
@@ -95,7 +95,7 @@ unalias _alss _host _scanrunning _compromised _vuln _issues _osfam _numservices 
 unset IP noMoreRefresh >/dev/null 2>&1
 
 # Set up some aliases. Normally I hate those interactive "rm", "cp" and "mv" commands. 
-# But as your mucking about with (maybe someone else's) test results, it's better to be safe.
+# But as you're mucking about with (maybe someone else's) test results, it's better to be safe.
 alias rm="rm -i"
 alias cp="cp -i"
 alias mv="mv -i"
@@ -188,7 +188,7 @@ COLISSUES="$BROWN" # Hosts with issues, but no actual exploitable "get me on" vu
 function __help {
 	cat ${NEETSH}/neetshellhelp.txt
 	if [ -d "${BaseD}/custom" ]; then
-		for dir in `find ${BaseD}/custom -maxdepth 1 -type d`; do
+		for dir in `find "${BaseD}/custom" -maxdepth 1 -type d`; do
 			if [ -f "${dir}/neetshellhelp" ]; then
 				extension=`basename $dir`
 				echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
@@ -222,7 +222,7 @@ function hostmode {
 	elif [ -f hostInfo.txt ]; then
 		if [ -z $IP ] || [ $IP != `basename $PWD` ]; then
 			# We're in a host directory but not in host mode
-			NEWIP=`basename $PWD`
+			NEWIP=`basename "$PWD"`
 			_host $NEWIP
 		fi
 	else
@@ -232,7 +232,7 @@ function hostmode {
 
 function defaulthere {
 	# Sets the current directory as the default neetsh directory without having to run a scan
-	echo "$NeetTLD" > ${HOME}/.neet/wd
+	echo "$NeetTLD" > "${HOME}/.neet/wd"
 }
 
 # **** Broad View Commands ****
@@ -246,7 +246,7 @@ function - {
 }
 
 function docs {
-	${BROWSER} ${HTDD}/neet.html &
+	${BROWSER} "${HTDD}/index.html" &
 }
 
 function glo {
@@ -282,8 +282,8 @@ function hostswithservices {
 }
 
 function msf2 {
-	local od=$PWD
-	cd $MSF2 && ./msfcli $@ && cd $od
+	local od="$PWD"
+	cd "$MSF2" && ./msfcli $@ && cd "$od"
 }
 
 function meterpreter {
@@ -808,15 +808,15 @@ function svc {
 }
 
 function scans {
-		echo running > $INTERACT
+		echo running > "$INTERACT"
 }
 
 function debug {
-		echo debug > $INTERACT
+		echo debug > "$INTERACT"
 }
 
 function gsmsummary {
-		echo gsmsummary > $INTERACT
+		echo gsmsummary > "$INTERACT"
 }
 
 function threads {
@@ -828,9 +828,9 @@ function budget {
 	local value=$1
 	if [ ! -z $value ]; then
 		echo "Setting GSM performance budget to $value"
-		echo $value > $INTERACT
+		echo $value > "$INTERACT"
 	else
-		echo show > $INTERACT
+		echo show > "$INTERACT"
 	fi
 }
 
@@ -838,7 +838,7 @@ function disable {
 	local module=$1
 	if [ ! -z $module ]; then
 		echo "Disabling GSM module $module"
-		echo "disable $module" > $INTERACT
+		echo "disable $module" > "$INTERACT"
 	else
 		echo "usage: disable <GSM module>"
 	fi
@@ -848,7 +848,7 @@ function enable {
 	local module=$1
 	if [ ! -z $module ]; then
 		echo "Enabling GSM module $module"
-		echo "enable $module" > $INTERACT
+		echo "enable $module" > "$INTERACT"
 	else
 		echo "usage: disable <GSM module>"
 	fi
@@ -858,7 +858,7 @@ function load {
 	local value=$1
 	if [ ! -z $value ]; then
 		echo "Setting system load target to $value"
-		echo "load $value" > $INTERACT
+		echo "load $value" > "$INTERACT"
 	else
 		echo "Usage: load [target load average (~300-450)]"
 		cat /proc/loadavg
@@ -866,19 +866,19 @@ function load {
 }
 
 function queue {
-	echo queue > $INTERACT
+	echo queue > "$INTERACT"
 }
 
 function addinstance {
-	echo "incinstance $1" > $INTERACT
+	echo "incinstance $1" > "$INTERACT"
 }
 
 function delinstance {
-	echo "decinstance $1" > $INTERACT
+	echo "decinstance $1" > "$INTERACT"
 }
 
 function pause {
-	echo "pause" > $INTERACT
+	echo "pause" > "$INTERACT"
 }
 
 function stats {
