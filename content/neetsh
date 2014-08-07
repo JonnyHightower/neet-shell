@@ -23,6 +23,10 @@
 ##########################################################################
 
 # Neet shell for easy result navigation
+CONFIG=/opt/neet/etc/neet.conf
+if [ -f "${HOME}/.neet/neet.conf" ]; then
+	CONFIG="${HOME}/.neet/neet.conf"
+fi
 
 # Help us generate a unique index (if necessary) for the log.
 # This allows us to maintain a log for each neetsh session running
@@ -51,7 +55,7 @@ if [ ! -z $USESCREEN ]; then
 fi
 
 # Allow us to enable screen from the neet configuration file
-if grep NeetshStartWithScreen=1 /opt/neet/etc/neet.conf >/dev/null 2>&1; then
+if grep NeetshStartWithScreen=1 "$CONFIG" >/dev/null 2>&1; then
 	SCREEN=1
 fi
 

