@@ -8,7 +8,7 @@ by neet-update whenever it changes.
 
 Neet is released under version 3 of the GNU Public License. See the LICENSE file for details.
 
-Copyright 2008-2014 Jonathan Roach
+Copyright 2008-2016 Jonathan Roach
 Email: jonnyhightower [at] funkygeek.com
 
 

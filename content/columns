@@ -7,7 +7,7 @@
 #    This program takes input piped to STDIN and produces columnar output
 #    dependent on the width of the user's terminal.
 #
-#    Copyright (C) 2008-2014 Jonathan Roach
+#    Copyright (C) 2008-2016 Jonathan Roach
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
