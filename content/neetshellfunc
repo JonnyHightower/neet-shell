@@ -31,7 +31,7 @@
 # The other functions are the actual user commands.
 
 # Config File
-VERSION=1.1.7
+VERSION=1.1.8
 CONFIG="/opt/neet/etc/neet.conf"
 if [ -f "${HOME}/.neet/neet.conf" ]; then
 	CONFIG="${HOME}/.neet/neet.conf"
@@ -1465,7 +1465,7 @@ function _host {
 			if [ -f hostInfo.txt ]; then
 				# Added to aid manual exploitation with msf2 / MSF
 				export interface=`grep ^ReachedBy hostInfo.txt 2>/dev/null | awk {print'$2'}`
-				export LOCAL=`ifconfig $interface 2>/dev/null | grep "inet addr" | awk {print'$2'} | awk -F: {print'$2'}`
+				export LOCAL=`/sbin/ip addr show $interface 2>/dev/null | grep " inet " | awk {print'$2'} | awk -F/ {print'$1'}`
 				export LHOST=$LOCAL
 				export BIN=$BD
 				# Generate a random connect port number in the range 2000-65535
