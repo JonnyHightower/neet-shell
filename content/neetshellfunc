@@ -31,7 +31,7 @@
 # The other functions are the actual user commands.
 
 # Config File
-VERSION=1.1.8
+VERSION=1.1.9
 CONFIG="/opt/neet/etc/neet.conf"
 if [ -f "${HOME}/.neet/neet.conf" ]; then
 	CONFIG="${HOME}/.neet/neet.conf"

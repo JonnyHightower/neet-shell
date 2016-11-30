@@ -21,8 +21,12 @@
 #    Contact: jonnyhightower [at] funkygeek.com
 #
 ##########################################################################
+BEGIN {
+	unshift @INC, "/opt/neet/core";
+}
 
 use strict;
+
 if ($#ARGV<0){
 	usage();
 	exit 1;
@@ -166,9 +170,13 @@ if ($ARGV[0] eq "--dump"){
 	exit $err;
 }
 # This code is for the non-extract options.
+use JR::Files::Config; # For finding locations
 
 my ($host,$user,$pass);
 my $UPLOAD="/opt/neet/upload";
+my $locations="/opt/neet/etc/locations";
+my $winexe=getPath("winexe");
+
 
 if (exists($ENV{'IP'})){
 	($user,$pass)=@ARGV;
@@ -365,7 +373,7 @@ exit $ERROR;
 #------------------------------------------------------------------------------------------------------------------------------------------------
 
 sub authenticate {
-	my $return=`winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" 2>&1`;
+	my $return=`$winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" 2>&1`;
 
 	if ($return =~ /NT_STATUS_LOGON_FAILURE/i){
 		print STDERR "Logon failure\n";
@@ -385,36 +393,46 @@ sub authenticate {
 		$OS="2000";
 	} elsif ($return =~ /Windows XP/i){
 		$OS="XP";
+	} elsif ($return =~ /Windows \[Version 6.1.7601/i){
+		$OS="7";
 	} elsif ($return =~ /Windows \[Version 6.1./i){
 		$OS="2008";
 	} elsif ($return =~ /Windows \[Version 6.0./i){
 		$OS="Vista";
+	} elsif ($return =~ /Windows \[Version 6.3.9600/i){
+		$OS="2012";
+	} elsif ($return =~ /Windows \[Version 6.3./i){
+		$OS="2012";
+	} else {
+		$return =~ s/\r//g;
+		print "UNRECOGNISED OS: \"$return\"\n";
+		$OS=undef;
 	}
 	return 1;
 }
 
 sub rbacktick {
 	my $cmd=shift();
-	my @result=`winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" 2>&1`;
+	my @result=`$winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" 2>&1`;
 	return join ("",@result);
 }
 
 sub rexec {
 	my $cmd=shift();
-	my $rc=system("winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\"");
+	my $rc=system("$winexe --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\"");
 	$rc=$rc>>8;
 	return $rc;
 }
 
 sub silentRexec {
 	my $cmd=shift();
-	my $rc=system("winexe  --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" >/dev/null 2>&1");
+	my $rc=system("$winexe  --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c \\\"cd \%WINDIR\%\\${REMOTE_DIR} \& ${cmd}\\\"\" >/dev/null 2>&1");
 	$rc=$rc>>8;
 	return $rc;
 }
 
 sub check64 {
-	my $arch1=`winexe -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ECHO %PROCESSOR_ARCHITECTURE%\" 2>&1`;
+	my $arch1=`$winexe -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ECHO %PROCESSOR_ARCHITECTURE%\" 2>&1`;
 	if ($arch1 =~ /AMD64/i){
 		$bit=64;
 	} 
@@ -424,7 +442,7 @@ sub check64 {
 sub cleanup {
 	print "*** Cleaning up the remote host $host...\n";
 	# Clean up the winexe service - delete the service
-	system("winexe --uninstall --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" >/dev/null 2>&1");
+	system("$winexe --uninstall --ostype=2 -U \"${user}\"%\"${pass}\" //$host \"cmd.exe /c ver\" >/dev/null 2>&1");
 	for my $file (@FILES){
 		rdel($file);
 	}
@@ -518,4 +536,20 @@ sub usage {
 				"       $0 --dump to dump the LSA, hashes from SAM and the Cache.\n";
 }
 
-
+sub getPath {
+	my $bin=shift();
+	my $binaries=Config->new("$locations");
+	my $path=$binaries->GetVal("$bin");
+	if ((!defined($path)) || (length($path)==0)){
+		for my $dir (split ":", $ENV{'PATH'}){
+			if (-f "${dir}/$bin"){
+				$path="${dir}/$bin";
+				last;
+			}
+		}
+		if ((!defined($path)) || (length($path)==0)){
+			print "Error: couldn't find path for $bin on the system\n";
+		}
+	}
+	return $path;
+}
